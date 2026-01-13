@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VR Schedule (Experiment Version)</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; background: #fafafa; }
+    header { padding: 1rem; background: #111; color: #fff; }
+    .container { max-width: 860px; margin: 0 auto; padding: 1rem; }
+    .card { background: #fff; border-radius: 10px; padding: 1rem; box-shadow: 0 4px 14px rgba(0,0,0,0.08); margin-bottom: 1rem; }
+    label { display: block; font-weight: 600; margin-top: 0.75rem; }
+    input { width: 100%; max-width: 220px; padding: 0.5rem; font-size: 1rem; margin-top: 0.25rem; }
+    button { cursor: pointer; border: 0; border-radius: 8px; padding: 0.7rem 1rem; font-weight: 700; }
+    .row { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; }
+    .btn-primary { background: #2979ff; color: #fff; }
+    .btn-green { background: #2e7d32; color: #fff; }
+    .btn-red { background: #c62828; color: #fff; }
+    .btn-gray { background: #666; color: #fff; }
+    .muted { color: #666; font-size: 0.95rem; }
+    .error { color: #c62828; font-weight: 700; margin-top: 0.75rem; }
+    .schedule { font-size: 1.05rem; line-height: 1.5; }
+    .schedule strong { background: #fff3cd; padding: 0.1rem 0.3rem; border-radius: 6px; }
+    .hidden { display: none; }
+    .tracker { background: #f3f4f6; border-radius: 8px; padding: 0.75rem; max-height: 220px; overflow-y: auto; font-size: 0.85rem; }
+    /* Reinforce overlay */
+    #reinforce-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.55);
+      display: none;
+      align-items: center; justify-content: center;
+      z-index: 9999;
+    }
+    #reinforce-modal {
+      background: #fff; padding: 2rem 2.5rem; border-radius: 12px;
+      text-align: center; min-width: 260px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    }
+    #reinforce-modal h2 { margin: 0 0 0.5rem 0; color: #075e16; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1 style="margin:0; font-size: 1.2rem;">Variable Ratio Schedule (Experiment Version)</h1>
+    </div>
+  </header>
+
+  <!-- REINFORCE OVERLAY -->
+  <div id="reinforce-overlay">
+    <div id="reinforce-modal">
+      <h2>REINFORCE</h2>
+      <p style="margin-top:0;">Reinforcement delivered.</p>
+      <button class="btn-red" onclick="hideReinforceOverlay()">X</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="card">
+      <div class="row" style="justify-content: space-between;">
+        <div>
+          <div class="muted">Enter parameters, generate a deterministic bank of 20 VR sets.</div>
+        </div>
+        <div>
+          <button class="btn-gray" onclick="VR.toggleMenu()">Schedule Menu</button>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top: 0.75rem;">
+        <div>
+          <label for="targetAvg">Target avg (VR):</label>
+          <input type="number" id="targetAvg" min="1" value="5" />
+        </div>
+        <div>
+          <label for="nOpp">Reinforcement opportunities (n):</label>
+          <input type="number" id="nOpp" min="1" value="20" />
+        </div>
+        <div style="align-self:flex-end;">
+          <button class="btn-primary" onclick="VR.generate()">Generate</button>
+        </div>
+      </div>
+
+      <div id="error" class="error"></div>
+
+      <div id="menu" class="card hidden" style="margin-top: 1rem;">
+        <div class="row" style="justify-content: space-between;">
+          <div>
+            <div><strong>Set:</strong> <span id="setLabel">—</span></div>
+            <div class="muted">Bank size fixed at <strong>20 sets</strong>. Deterministic for the same inputs.</div>
+            <div class="muted"><strong>Seed key:</strong> <span id="seedKey">—</span></div>
+          </div>
+          <div class="row">
+            <button class="btn-gray" onclick="VR.prevSet()">Prev Set</button>
+            <button class="btn-gray" onclick="VR.nextSet()">Next Set</button>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top: 0.75rem;">
+          <button class="btn-primary" onclick="VR.copyCurrentSet()">Copy Current Set</button>
+          <button class="btn-primary" onclick="VR.copyAllSets()">Copy All 20 Sets</button>
+          <button class="btn-gray" onclick="VR.toggleTracker()">Toggle Click Tracker</button>
+        </div>
+      </div>
+
+      <div id="currentSchedule" class="card" style="margin-top: 1rem;">
+        <div class="row" style="justify-content: space-between;">
+          <div><strong>Current schedule</strong></div>
+          <div class="muted">Click count: <span id="clickCount">0</span></div>
+        </div>
+        <div id="scheduleText" class="schedule muted" style="margin-top: 0.5rem;">No schedule generated yet.</div>
+
+        <div class="row" style="margin-top: 1rem;">
+          <button class="btn-green" onclick="VR.check()">✔</button>
+          <button class="btn-red" onclick="VR.x()">X</button>
+        </div>
+      </div>
+
+      <div id="tracker" class="tracker hidden"></div>
+    </div>
+  </div>
+
+  <script>
+    function showReinforceOverlay() {
+      const ov = document.getElementById("reinforce-overlay");
+      ov.style.display = "flex";
+    }
+    function hideReinforceOverlay() {
+      const ov = document.getElementById("reinforce-overlay");
+      ov.style.display = "none";
+    }
+
+    // --- Deterministic primitives ---
+    function fnv1a32(str) {
+      let h = 0x811c9dc5; // offset basis
+      for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h = Math.imul(h, 0x01000193); // FNV prime
+      }
+      return h >>> 0;
+    }
+
+    function mulberry32(seed) {
+      return function() {
+        let t = seed += 0x6D2B79F5;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    function seededShuffle(arr, rand) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(rand() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    // Generates ONE VR set: n positive integers summing to n*avg, deterministically from seed
+    function generateOneSetDeterministic(n, avg, seedInt) {
+      const target = n * avg;
+      const rand = mulberry32(seedInt);
+
+      // Simple constructive approach:
+      // 1) Build n-1 values with bounded random draws based on remaining sum.
+      // 2) Last value is remainder.
+      // 3) Seeded shuffle to randomize order deterministically.
+      const values = [];
+      let sum = 0;
+
+      for (let k = 0; k < n - 1; k++) {
+        const remainingSlots = (n - 1) - k;
+        const remainingSum = target - sum;
+
+        // Ensure we can still place at least 1 in each remaining slot
+        const maxHere = Math.max(1, remainingSum - remainingSlots);
+        const draw = 1 + Math.floor(rand() * maxHere);
+
+        values.push(draw);
+        sum += draw;
+      }
+
+      values.push(target - sum);
+
+      return seededShuffle(values, rand);
+    }
+
+    const VR = {
+      BANK_SIZE: 20,
+
+      n: 0,
+      avg: 0,
+      bank: [],          // array of sets
+      setIndex: 0,       // 0-based
+      currentIndex: 0,   // pointer within set
+      clickCount: 0,
+      logData: [],
+      menuOpen: false,
+      trackerOpen: false,
+
+      seedKeyFor(setIdx) {
+        return `VR|n=${this.n}|avg=${this.avg}|set=${setIdx+1}|bank=${this.BANK_SIZE}`;
+      },
+
+      generate() {
+        const avg = parseInt(document.getElementById("targetAvg").value, 10);
+        const n = parseInt(document.getElementById("nOpp").value, 10);
+        const err = document.getElementById("error");
+
+        if (!avg || !n || avg <= 0 || n <= 0) {
+          err.textContent = "Please enter positive integers for target avg and n.";
+          return;
+        }
+
+        err.textContent = "";
+        this.avg = avg;
+        this.n = n;
+
+        this.bank = [];
+        for (let s = 0; s < this.BANK_SIZE; s++) {
+          const seed = fnv1a32(this.seedKeyFor(s));
+          this.bank.push(generateOneSetDeterministic(this.n, this.avg, seed));
+        }
+
+        // Reset run state
+        this.setIndex = 0;
+        this.currentIndex = 0;
+        this.clickCount = 0;
+        this.logData = [];
+        this.log(`Generated bank (${this.BANK_SIZE})`);
+
+        this.render();
+      },
+
+      get currentSet() {
+        return this.bank[this.setIndex] || [];
+      },
+
+      prevSet() {
+        if (!this.bank.length) return;
+        this.setIndex = (this.setIndex - 1 + this.BANK_SIZE) % this.BANK_SIZE;
+        this.currentIndex = 0;
+        this.clickCount = 0;
+        this.log(`Switched to Set ${this.setIndex + 1}`);
+        this.render();
+      },
+
+      nextSet() {
+        if (!this.bank.length) return;
+        this.setIndex = (this.setIndex + 1) % this.BANK_SIZE;
+        this.currentIndex = 0;
+        this.clickCount = 0;
+        this.log(`Switched to Set ${this.setIndex + 1}`);
+        this.render();
+      },
+
+      check() {
+        if (!this.currentSet.length) return;
+        this.clickCount += 1;
+        this.log("Check");
+
+        const req = this.currentSet[this.currentIndex];
+        if (this.clickCount >= req) {
+          showReinforceOverlay();
+          this.log("REINFORCE");
+          this.clickCount = 0;
+          this.currentIndex = (this.currentIndex + 1) % this.currentSet.length;
+        }
+        this.render();
+      },
+
+      x() {
+        if (!this.currentSet.length) return;
+        this.log("X");
+        this.renderTracker();
+      },
+
+      toggleMenu() {
+        this.menuOpen = !this.menuOpen;
+        document.getElementById("menu").classList.toggle("hidden", !this.menuOpen);
+        this.renderMenu();
+      },
+
+      toggleTracker() {
+        this.trackerOpen = !this.trackerOpen;
+        document.getElementById("tracker").classList.toggle("hidden", !this.trackerOpen);
+        this.renderTracker();
+      },
+
+      log(msg) {
+        this.logData.push(`${msg} at ${new Date().toISOString()}`);
+        this.renderTracker();
+      },
+
+      render() {
+        document.getElementById("clickCount").textContent = String(this.clickCount);
+
+        if (!this.currentSet.length) {
+          document.getElementById("scheduleText").textContent = "No schedule generated yet.";
+        } else {
+          const parts = this.currentSet.map((v, i) => i === this.currentIndex ? `<strong>${v}</strong>` : String(v));
+          document.getElementById("scheduleText").innerHTML =
+            `<div><span class="muted">Reinforce after:</span></div>
+             <div>${parts.join(", ")} <span class="muted">responses</span></div>`;
+        }
+
+        this.renderMenu();
+        this.renderTracker();
+      },
+
+      renderMenu() {
+        if (!this.menuOpen) return;
+
+        const label = document.getElementById("setLabel");
+        const seedKey = document.getElementById("seedKey");
+
+        if (!this.bank.length) {
+          label.textContent = "—";
+          seedKey.textContent = "—";
+          return;
+        }
+
+        label.textContent = `Set ${this.setIndex + 1} of ${this.BANK_SIZE}`;
+        seedKey.textContent = this.seedKeyFor(this.setIndex);
+      },
+
+      renderTracker() {
+        if (!this.trackerOpen) return;
+        const el = document.getElementById("tracker");
+        el.innerHTML = this.logData.map(x => `<div>${x}</div>`).join("");
+      },
+
+      copyCurrentSet() {
+        if (!this.currentSet.length) return;
+        const header = `n=${this.n}, avg=${this.avg}, Set ${this.setIndex + 1} of ${this.BANK_SIZE}\n`;
+        const body = this.currentSet.join(", ");
+        navigator.clipboard.writeText(header + body);
+      },
+
+      copyAllSets() {
+        if (!this.bank.length) return;
+        const lines = [];
+        lines.push(`VR deterministic bank | n=${this.n}, avg=${this.avg} | ${this.BANK_SIZE} sets`);
+        for (let s = 0; s < this.BANK_SIZE; s++) {
+          lines.push(`Set ${s + 1}: ${this.bank[s].join(", ")}`);
+        }
+        navigator.clipboard.writeText(lines.join("\n"));
+      }
+    };
+
+    // Safety: overlay off on load
+    window.addEventListener("load", () => hideReinforceOverlay());
+  </script>
+</body>
+</html>
