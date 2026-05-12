@@ -17,6 +17,14 @@
     .btn-green { background: #2e7d32; color: #fff; }
     .btn-red { background: #c62828; color: #fff; }
     .btn-gray { background: #666; color: #fff; }
+    .response-btn {
+      width: 96px;
+      height: 64px;
+      font-size: 1.45rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
     .muted { color: #666; font-size: 0.95rem; }
     .error { color: #c62828; font-weight: 700; margin-top: 0.75rem; }
     .schedule { font-size: 1.05rem; line-height: 1.5; }
@@ -111,8 +119,9 @@
         <div id="scheduleText" class="schedule muted" style="margin-top: 0.5rem;">No schedule generated yet.</div>
 
         <div class="row" style="margin-top: 1rem;">
-          <button class="btn-green" onclick="VR.check()">✔</button>
-          <button class="btn-red" onclick="VR.x()">X</button>
+          <button class="btn-green response-btn" onclick="VR.check()">✔</button>
+          <button class="btn-red response-btn" onclick="VR.x()">X</button>
+          <button class="btn-gray response-btn" onclick="VR.undo()">Undo</button>
         </div>
       </div>
 
@@ -269,11 +278,41 @@
       currentIndex: 0,
       clickCount: 0,
       logData: [],
+      undoStack: [],
       menuOpen: false,
       trackerOpen: false,
 
       seedKeyFor(setIdx) {
         return `VR|n=${this.n}|avg=${this.avg}|set=${setIdx+1}|bank=${this.BANK_SIZE}`;
+      },
+
+      saveState() {
+        this.undoStack.push({
+          setIndex: this.setIndex,
+          currentIndex: this.currentIndex,
+          clickCount: this.clickCount,
+          logData: [...this.logData]
+        });
+
+        // Prevents unbounded memory growth during long sessions.
+        if (this.undoStack.length > 100) {
+          this.undoStack.shift();
+        }
+      },
+
+      undo() {
+        if (!this.undoStack.length) return;
+
+        const previous = this.undoStack.pop();
+
+        this.setIndex = previous.setIndex;
+        this.currentIndex = previous.currentIndex;
+        this.clickCount = previous.clickCount;
+        this.logData = previous.logData;
+
+        hideReinforceOverlay();
+        this.log("Undo");
+        this.render();
       },
 
       generate() {
@@ -301,6 +340,7 @@
         this.currentIndex = 0;
         this.clickCount = 0;
         this.logData = [];
+        this.undoStack = [];
         this.log(`Generated bank (${this.BANK_SIZE})`);
 
         this.render();
@@ -312,6 +352,7 @@
 
       prevSet() {
         if (!this.bank.length) return;
+        this.saveState();
         this.setIndex = (this.setIndex - 1 + this.BANK_SIZE) % this.BANK_SIZE;
         this.currentIndex = 0;
         this.clickCount = 0;
@@ -321,6 +362,7 @@
 
       nextSet() {
         if (!this.bank.length) return;
+        this.saveState();
         this.setIndex = (this.setIndex + 1) % this.BANK_SIZE;
         this.currentIndex = 0;
         this.clickCount = 0;
@@ -330,6 +372,8 @@
 
       check() {
         if (!this.currentSet.length) return;
+        this.saveState();
+
         this.clickCount += 1;
         this.log("Check");
 
@@ -345,6 +389,8 @@
 
       x() {
         if (!this.currentSet.length) return;
+        this.saveState();
+
         this.log("X");
         this.renderTracker();
       },
